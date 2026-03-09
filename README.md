@@ -12,6 +12,8 @@ A lightweight ROS2 navigation module for holonomic robots with waypoint manageme
 
 ## Installation
 
+### 1. Clone and Build
+
 ```bash
 cd ~/ros2_ws/src
 git clone <repository_url>
@@ -20,11 +22,23 @@ colcon build --packages-select simple_navigator
 source install/setup.bash
 ```
 
+### 2. Install Dependencies
+
+```bash
+# Python dependencies
+pip3 install transforms3d PyQt5 PyYAML
+
+# Or on Ubuntu/Debian
+sudo apt install python3-pyqt5 python3-yaml
+```
+
 ## Dependencies
 
 - ROS2 (tested on Humble/Iron)
 - Python 3.8+
-- `tf-transformations` (install via: `pip3 install transforms3d`)
+- `transforms3d` - TF transformations (install via: `pip3 install transforms3d`)
+- `PyQt5` - GUI framework (install via: `pip3 install PyQt5`)
+- `PyYAML` - YAML file handling (install via: `pip3 install PyYAML`)
 
 ## Usage
 
@@ -269,6 +283,82 @@ ros2 run simple_navigator waypoint_editor
 - **Pure Pursuit**: For path following applications
 - **Obstacle Avoidance**: Integration with costmaps
 - **Multi-waypoint missions**: Queue-based waypoint execution
+
+## Testing
+
+### Run Unit Tests
+
+```bash
+# Install pytest (if not already installed)
+pip3 install pytest
+
+# Run tests
+colcon test --packages-select simple_navigator --event-handlers console_direct+
+# Or directly
+python3 test/test_navigator.py
+```
+
+Test coverage:
+- WaypointManager: CRUD operations, temporary waypoints
+- Controller: Robot state, goal detection, velocity commands
+- SimpleController: PID control, velocity limits, deadband, navigation simulation
+
+### Integration Test with Mock Robot
+
+The package includes a mock robot node for testing without real hardware.
+
+```bash
+# Terminal 1: Launch integration test (mock_robot + navigator)
+ros2 launch simple_navigator test_integration.launch.py
+
+# Terminal 2: Send target and go signal
+ros2 topic pub /target_pose geometry_msgs/msg/PoseStamped \
+  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0, y: 0, z: 0, w: 1}}}" --once
+
+ros2 topic pub /go std_msgs/msg/Bool "{data: true}" --once
+
+# Terminal 3: Monitor topics
+ros2 topic echo /cmd_vel
+ros2 topic echo /goal_reached
+ros2 topic echo /odom
+```
+
+### Run Waypoint Editor with Mock Robot
+
+```bash
+# Terminal 1: Launch mock robot only
+ros2 run simple_navigator mock_robot
+
+# Terminal 2: Launch navigator
+ros2 launch simple_navigator navigator.launch.py
+
+# Terminal 3: Launch Qt waypoint editor (optional, requires display)
+ros2 run simple_navigator waypoint_editor
+```
+
+## Architecture
+
+```
+simple_navigator/
+├── config/
+│   └── waypoints.yaml       # Waypoint configuration
+├── launch/
+│   ├── navigator.launch.py  # Main launch file
+│   └── test_integration.launch.py  # Integration test launch
+├── simple_navigator/
+│   ├── __init__.py
+│   ├── navigator_node.py    # Main ROS2 node
+│   ├── waypoint_manager.py  # Waypoint management
+│   ├── controller.py        # Abstract controller interface
+│   ├── simple_controller.py # PID implementation
+│   ├── waypoint_editor.py   # Qt GUI tool
+│   └── mock_robot.py        # Mock robot for simulation
+├── test/
+│   └── test_navigator.py    # Unit tests
+├── package.xml
+├── setup.py
+└── setup.cfg
+```
 
 ## License
 
