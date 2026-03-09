@@ -24,6 +24,7 @@ setup(
     entry_points={
         "console_scripts": [
             "navigator_node = simple_navigator.navigator_node:main",
+            "waypoint_editor = simple_navigator.waypoint_editor:main",
         ],
     },
 )

@@ -58,32 +58,98 @@ ros2 launch simple_navigator navigator.launch.py config_file:=/path/to/config.ya
 
 ### 3. Set Target Waypoint
 
-**Option A: By Name (from config file)**
+**Option A: Publish Pose via Command Line**
 
 ```bash
+# Publish target pose (x=1.0, y=0.0, yaw=90°)
 ros2 topic pub /target_pose geometry_msgs/msg/PoseStamped \
-  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0, y: 0, z: 0, w: 1}}}"
+  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0.0, y: 0.0, z: 0.7071, w: 0.7071}}}"
 ```
 
-**Option B: Use Waypoint Name (programmatically)**
+**Option B: Use Pre-defined Waypoint Name**
 
-In your code, call the service or use the API.
+```bash
+# The node loads waypoints from config/waypoints.yaml
+# home, point_a, point_b, point_c are available by default
+```
+
+**Option C: Add Waypoint via Python API**
+
+```python
+from simple_navigator.waypoint_manager import WaypointManager
+
+manager = WaypointManager()
+manager.add_waypoint("my_point", x=2.5, y=1.0, yaw=0.785)
+waypoint = manager.get_waypoint("my_point")
+print(f"Waypoint: {waypoint}")
+```
 
 ### 4. Start Navigation
 
-Publish a `True` to the `/go` topic:
-
+**Command Line:**
 ```bash
+# Send go signal
 ros2 topic pub /go std_msgs/msg/Bool "{data: true}" --once
+
+# Or keep publishing to maintain go state
+ros2 topic pub /go std_msgs/msg/Bool "{data: true}" -r 1
+```
+
+**Python API:**
+```python
+import rclpy
+from std_msgs.msg import Bool
+
+rclpy.init()
+node = rclpy.create_node('go_sender')
+pub = node.create_publisher(Bool, 'go', 10)
+pub.publish(Bool(data=True))
 ```
 
 ### 5. Monitor Progress
 
-The robot will:
+**Watch goal reached status:**
+```bash
+ros2 topic echo /goal_reached
+```
+
+**Monitor robot velocity commands:**
+```bash
+ros2 topic echo /cmd_vel
+```
+
+**Check available topics:**
+```bash
+ros2 topic list
+ros2 topic info /go
+ros2 topic info /target_pose
+ros2 topic info /goal_reached
+```
+
+**The robot will:**
 1. Move to the target waypoint
-2. Stop when within tolerance
+2. Stop when within tolerance (default: 0.05m position, 0.05rad yaw)
 3. Publish `True` to `/goal_reached`
 4. Wait for next `go` signal
+
+### 6. Complete Workflow Example
+
+```bash
+# Terminal 1: Launch navigator
+ros2 launch simple_navigator navigator.launch.py
+
+# Terminal 2: Set target and start navigation
+# Set target pose
+ros2 topic pub /target_pose geometry_msgs/msg/PoseStamped \
+  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0, y: 0, z: 0, w: 1}}}" --once
+
+# Wait a moment, then send go signal
+sleep 1
+ros2 topic pub /go std_msgs/msg/Bool "{data: true}" --once
+
+# Monitor progress
+ros2 topic echo /goal_reached
+```
 
 ## Topics
 
@@ -143,6 +209,58 @@ simple_navigator/
 ├── setup.py
 └── setup.cfg
 ```
+
+## GUI Tool: Waypoint Editor
+
+A PyQt5-based graphical interface for waypoint management and navigation control.
+
+### Features
+
+- **Interactive Waypoint Editor**: Add, edit, delete waypoints visually
+- **TF Position Display**: Real-time robot position from TF
+- **YAML Import/Export**: Load and save waypoint configurations
+- **Direct Topic Publishing**: Send waypoints directly to navigator
+- **Navigation Control**: GO/STOP buttons for navigation
+
+### Installation
+
+```bash
+# Install PyQt5 (if not already installed)
+pip3 install PyQt5
+
+# Or on Ubuntu/Debian
+sudo apt install python3-pyqt5
+```
+
+### Usage
+
+```bash
+# Launch the waypoint editor
+ros2 run simple_navigator waypoint_editor
+```
+
+### Interface Overview
+
+**Waypoint Editor Tab:**
+- Current robot position display (from TF)
+- Input fields for waypoint name, X, Y, Yaw (rad/deg)
+- Waypoint table with selection
+- Load/Save YAML configuration buttons
+
+**Navigation Control Tab:**
+- Publish selected waypoint as target
+- GO button to start navigation
+- STOP button to cancel navigation
+- Status display
+
+### Workflow
+
+1. Launch navigator node in one terminal
+2. Launch waypoint editor in another terminal
+3. Use "Use Current Position" to capture robot's current location
+4. Add waypoints or load from YAML
+5. Select a waypoint and click "Publish Target Pose"
+6. Click "GO - Start Navigation" to begin
 
 ## Future Extensions
 
