@@ -8,6 +8,7 @@ from typing import Dict, Optional, Any
 from dataclasses import dataclass
 import yaml
 import os
+import math
 
 
 @dataclass
@@ -69,7 +70,7 @@ class WaypointManager:
                     name=name,
                     x=float(data.get("x", 0.0)),
                     y=float(data.get("y", 0.0)),
-                    yaw=float(data.get("yaw", 0.0)),
+                    yaw=math.radians(float(data.get("yaw", 0.0))),
                 )
 
     def add_waypoint(

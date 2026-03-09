@@ -23,8 +23,9 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "navigator_node = simple_navigator.navigator_node:main",
+            "navigator = simple_navigator.navigator_node:main",
             "waypoint_editor = simple_navigator.waypoint_editor:main",
+            "modern_waypoint_editor = simple_navigator.modern_waypoint_editor:main",
             "mock_robot = simple_navigator.mock_robot:main",
         ],
     },

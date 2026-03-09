@@ -18,26 +18,18 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 from tf2_ros import Buffer, TransformListener
 from tf2_geometry_msgs import do_transform_pose
-import tf_transformations
 
 from typing import Optional
 import yaml
 import os
+import math
 
 from .waypoint_manager import WaypointManager, Waypoint
 from .controller import Controller, RobotState
 from .simple_controller import SimpleController
 
-# Import for TF transformations (requires: pip3 install transforms3d)
-try:
-    import tf_transformations
-except ImportError:
-    import sys
-
-    print(
-        "ERROR: tf_transformations not found. Install with: pip3 install transforms3d"
-    )
-    sys.exit(1)
+# Import for TF transformations
+import transforms3d.euler as tf_transformations
 
 
 class NavigatorNode(Node):
@@ -147,7 +139,7 @@ class NavigatorNode(Node):
                         name=name,
                         x=float(data.get("x", 0.0)),
                         y=float(data.get("y", 0.0)),
-                        yaw=float(data.get("yaw", 0.0)),
+                        yaw=math.radians(float(data.get("yaw", 0.0))),
                     )
 
             if "controller" in config and self.controller:
@@ -182,7 +174,7 @@ class NavigatorNode(Node):
             y = transform.transform.translation.y
 
             q = transform.transform.rotation
-            yaw = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
+            yaw = tf_transformations.quat2euler([q.x, q.y, q.z, q.w])[2]
 
             return RobotState(x=x, y=y, yaw=yaw)
 
@@ -224,7 +216,7 @@ class NavigatorNode(Node):
         y = msg.pose.position.y
 
         q = msg.pose.orientation
-        yaw = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
+        yaw = tf_transformations.quat2euler([q.x, q.y, q.z, q.w])[2]
 
         self.waypoint_manager.set_temporary_waypoint("target", x, y, yaw)
         self.target_waypoint = self.waypoint_manager.get_waypoint("target")

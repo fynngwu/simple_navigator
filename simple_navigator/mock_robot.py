@@ -17,7 +17,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
-import tf_transformations
+import transforms3d.euler as tf_transformations
 import math
 import time
 
@@ -123,7 +123,7 @@ class MockRobotNode(Node):
         odom.pose.pose.position.z = 0.0
 
         # Orientation (quaternion from yaw)
-        q = tf_transformations.quaternion_from_euler(0, 0, self.yaw)
+        q = tf_transformations.euler2quat(0, 0, self.yaw)
         odom.pose.pose.orientation.x = q[0]
         odom.pose.pose.orientation.y = q[1]
         odom.pose.pose.orientation.z = q[2]
@@ -147,7 +147,7 @@ class MockRobotNode(Node):
         t.transform.translation.y = self.y
         t.transform.translation.z = 0.0
 
-        q = tf_transformations.quaternion_from_euler(0, 0, self.yaw)
+        q = tf_transformations.euler2quat(0, 0, self.yaw)
         t.transform.rotation.x = q[0]
         t.transform.rotation.y = q[1]
         t.transform.rotation.z = q[2]

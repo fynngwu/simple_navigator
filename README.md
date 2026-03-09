@@ -1,365 +1,280 @@
-# Simple Navigator
+# Simple Navigator - ROS2 导航控制器
 
-A lightweight ROS2 navigation module for holonomic robots with waypoint management.
+一个简单易用的 ROS2 全向移动机器人导航控制器，提供现代化 GUI 界面和 2D 地图可视化。
 
-## Features
+![ROS2](https://img.shields.io/badge/ROS2-Humble-blue)
+![Python](https://img.shields.io/badge/Python-3.10+-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-- Waypoint configuration via YAML file
-- Go-signal triggered navigation
-- Holonomic wheel control (omnidirectional)
-- TF-based localization
-- Extensible controller architecture (PID, MPC, Pure Pursuit ready)
+## ✨ 特性
 
-## Installation
+- 🎯 **简单的导航控制** - 基于航点的点对点导航
+- 🗺️ **2D 地图可视化** - 实时显示机器人位置和航点
+- 🎨 **现代化 GUI** - 暗色主题，直观易用
+- 🤖 **模拟机器人** - 内置模拟机器人用于测试
+- ⚙️ **灵活配置** - YAML 配置文件管理航点
+- 🖱️ **交互式操作** - 点击地图添加航点，无需手动输入坐标
 
-### 1. Clone and Build
+## 📋 系统要求
+
+- Ubuntu 22.04 或类似 Linux 系统
+- ROS2 Humble
+- Python 3.10+
+- PyQt5
+
+## 🚀 快速开始
+
+### 安装依赖
 
 ```bash
-cd ~/ros2_ws/src
-git clone <repository_url>
-cd ..
-colcon build --packages-select simple_navigator
+# 安装 ROS2 Humble (如果尚未安装)
+# 参考: http://docs.ros.org/en/humble/Installation.html
+
+# 安装 Python 依赖
+pip3 install PyQt5 transforms3d
+```
+
+### 构建项目
+
+```bash
+# 克隆或下载项目
+cd /path/to/simple_navigator
+
+# 构建 ROS2 包
+colcon build --symlink-install
+
+# 加载环境
 source install/setup.bash
 ```
 
-### 2. Install Dependencies
+### 启动方式
+
+#### 方式 1: 一键启动完整系统（推荐）
 
 ```bash
-# Python dependencies
-pip3 install transforms3d PyQt5 PyYAML
-
-# Or on Ubuntu/Debian
-sudo apt install python3-pyqt5 python3-yaml
+# 启动模拟机器人 + 导航器 + 现代化 GUI 界面
+ros2 launch simple_navigator modern_editor.launch.py
 ```
 
-## Dependencies
+#### 方式 2: 分步启动（调试用）
 
-- ROS2 (tested on Humble/Iron)
-- Python 3.8+
-- `transforms3d` - TF transformations (install via: `pip3 install transforms3d`)
-- `PyQt5` - GUI framework (install via: `pip3 install PyQt5`)
-- `PyYAML` - YAML file handling (install via: `pip3 install PyYAML`)
+**终端 1 - 启动模拟机器人：**
+```bash
+ros2 run simple_navigator mock_robot
+```
 
-## Usage
+**终端 2 - 启动导航控制器：**
+```bash
+ros2 run simple_navigator navigator
+```
 
-### 1. Configure Waypoints
+**终端 3 - 启动现代化 GUI 界面：**
+```bash
+ros2 run simple_navigator modern_waypoint_editor
+```
 
-Edit `config/waypoints.yaml` to define your waypoints:
+#### 方式 3: 使用原始编辑器
+
+```bash
+# 启动原始的 PyQt5 编辑器
+ros2 run simple_navigator waypoint_editor
+```
+
+## 🎮 使用方法
+
+### 现代化界面操作
+
+1. **添加航点**
+   - 在左侧 2D 地图上点击任意位置
+   - 航点自动命名为 WP_1, WP_2, ...
+   - 蓝色圆点标记航点位置
+
+2. **导航到航点**
+   - 在右侧列表中选择目标航点
+   - 点击 "Publish Selected Target" 发布目标
+   - 点击 "START NAVIGATION" 开始导航
+
+3. **紧急停止**
+   - 点击 "EMERGENCY STOP" 立即停止机器人
+
+4. **清除航点**
+   - 点击 "Clear Waypoints" 清除所有航点
+
+### 配置文件编辑
+
+航点配置文件位于 `config/waypoints.yaml`：
 
 ```yaml
+# 航点配置 (角度使用度数)
 waypoints:
   home:
     x: 0.0
     y: 0.0
-    yaw: 0.0
+    yaw: 0.0  # 度数
+
   point_a:
     x: 1.0
     y: 0.0
-    yaw: 1.5708
+    yaw: 90.0  # 度数
+
+# 导航参数
+navigation:
+  position_tolerance: 0.05  # 米
+  yaw_tolerance: 0.05       # 弧度
+  control_frequency: 20.0   # Hz
+
+# 控制器参数
+controller:
+  kp_x: 1.0
+  kp_y: 1.0
+  kp_yaw: 1.0
+  max_linear_velocity: 0.3   # m/s
+  max_angular_velocity: 0.5  # rad/s
 ```
 
-### 2. Launch the Node
-
-```bash
-ros2 launch simple_navigator navigator.launch.py
-```
-
-Or with custom config:
-
-```bash
-ros2 launch simple_navigator navigator.launch.py config_file:=/path/to/config.yaml
-```
-
-### 3. Set Target Waypoint
-
-**Option A: Publish Pose via Command Line**
-
-```bash
-# Publish target pose (x=1.0, y=0.0, yaw=90°)
-ros2 topic pub /target_pose geometry_msgs/msg/PoseStamped \
-  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0.0, y: 0.0, z: 0.7071, w: 0.7071}}}"
-```
-
-**Option B: Use Pre-defined Waypoint Name**
-
-```bash
-# The node loads waypoints from config/waypoints.yaml
-# home, point_a, point_b, point_c are available by default
-```
-
-**Option C: Add Waypoint via Python API**
-
-```python
-from simple_navigator.waypoint_manager import WaypointManager
-
-manager = WaypointManager()
-manager.add_waypoint("my_point", x=2.5, y=1.0, yaw=0.785)
-waypoint = manager.get_waypoint("my_point")
-print(f"Waypoint: {waypoint}")
-```
-
-### 4. Start Navigation
-
-**Command Line:**
-```bash
-# Send go signal
-ros2 topic pub /go std_msgs/msg/Bool "{data: true}" --once
-
-# Or keep publishing to maintain go state
-ros2 topic pub /go std_msgs/msg/Bool "{data: true}" -r 1
-```
-
-**Python API:**
-```python
-import rclpy
-from std_msgs.msg import Bool
-
-rclpy.init()
-node = rclpy.create_node('go_sender')
-pub = node.create_publisher(Bool, 'go', 10)
-pub.publish(Bool(data=True))
-```
-
-### 5. Monitor Progress
-
-**Watch goal reached status:**
-```bash
-ros2 topic echo /goal_reached
-```
-
-**Monitor robot velocity commands:**
-```bash
-ros2 topic echo /cmd_vel
-```
-
-**Check available topics:**
-```bash
-ros2 topic list
-ros2 topic info /go
-ros2 topic info /target_pose
-ros2 topic info /goal_reached
-```
-
-**The robot will:**
-1. Move to the target waypoint
-2. Stop when within tolerance (default: 0.05m position, 0.05rad yaw)
-3. Publish `True` to `/goal_reached`
-4. Wait for next `go` signal
-
-### 6. Complete Workflow Example
-
-```bash
-# Terminal 1: Launch navigator
-ros2 launch simple_navigator navigator.launch.py
-
-# Terminal 2: Set target and start navigation
-# Set target pose
-ros2 topic pub /target_pose geometry_msgs/msg/PoseStamped \
-  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0, y: 0, z: 0, w: 1}}}" --once
-
-# Wait a moment, then send go signal
-sleep 1
-ros2 topic pub /go std_msgs/msg/Bool "{data: true}" --once
-
-# Monitor progress
-ros2 topic echo /goal_reached
-```
-
-## Topics
-
-| Topic | Type | Direction | Description |
-|-------|------|-----------|-------------|
-| `/cmd_vel` | `geometry_msgs/Twist` | Publish | Velocity commands |
-| `/go` | `std_msgs/Bool` | Subscribe | Start navigation |
-| `/target_pose` | `geometry_msgs/PoseStamped` | Subscribe | Set target waypoint |
-| `/goal_reached` | `std_msgs/Bool` | Publish | Goal reached notification |
-
-## Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `config_file` | string | `""` | Path to waypoints config |
-| `control_frequency` | double | 20.0 | Control loop frequency (Hz) |
-| `base_frame` | string | `base_link` | Robot base TF frame |
-| `odom_frame` | string | `odom` | Odometry TF frame |
-| `position_tolerance` | double | 0.05 | Goal position tolerance (m) |
-| `yaw_tolerance` | double | 0.05 | Goal yaw tolerance (rad) |
-| `default_waypoint` | string | `home` | Default waypoint name |
-
-## Extending the Controller
-
-The `Controller` abstract base class allows different control strategies:
-
-```python
-from simple_navigator.controller import Controller, RobotState, VelocityCommand
-
-class MPCController(Controller):
-    def compute_velocity(self, current_state, target_x, target_y, target_yaw):
-        # Your MPC implementation
-        pass
-    
-    def reset(self):
-        pass
-    
-    def set_parameters(self, **kwargs):
-        pass
-```
-
-## Architecture
+## 📂 项目结构
 
 ```
 simple_navigator/
 ├── config/
-│   └── waypoints.yaml       # Waypoint configuration
+│   └── waypoints.yaml          # 航点配置文件
 ├── launch/
-│   └── navigator.launch.py  # Launch file
+│   └── modern_editor.launch.py # 启动文件
 ├── simple_navigator/
-│   ├── __init__.py
-│   ├── navigator_node.py    # Main ROS2 node
-│   ├── waypoint_manager.py  # Waypoint management
-│   ├── controller.py        # Abstract controller interface
-│   └── simple_controller.py # PID implementation
-├── package.xml
-├── setup.py
-└── setup.cfg
+│   ├── navigator_node.py       # 导航控制器节点
+│   ├── mock_robot.py           # 模拟机器人
+│   ├── waypoint_editor.py      # 原始编辑器 GUI
+│   ├── modern_waypoint_editor.py # 现代化编辑器 GUI
+│   ├── waypoint_manager.py     # 航点管理器
+│   ├── controller.py           # 控制器基类
+│   └── simple_controller.py    # 简单 PID 控制器
+├── test/                       # 测试文件
+├── package.xml                 # ROS2 包配置
+├── setup.py                    # Python 包配置
+└── README.md                   # 本文件
 ```
 
-## GUI Tool: Waypoint Editor
+## 🔧 配置说明
 
-A PyQt5-based graphical interface for waypoint management and navigation control.
+### 控制器参数
 
-### Features
+在 `config/waypoints.yaml` 中调整控制器参数：
 
-- **Interactive Waypoint Editor**: Add, edit, delete waypoints visually
-- **TF Position Display**: Real-time robot position from TF
-- **YAML Import/Export**: Load and save waypoint configurations
-- **Direct Topic Publishing**: Send waypoints directly to navigator
-- **Navigation Control**: GO/STOP buttons for navigation
+- **kp_x, kp_y**: 位置控制比例增益
+- **kp_yaw**: 角度控制比例增益
+- **max_linear_velocity**: 最大线速度 (m/s)
+- **max_angular_velocity**: 最大角速度 (rad/s)
+- **position_tolerance**: 位置容差 (米)
+- **yaw_tolerance**: 角度容差 (弧度)
 
-### Installation
+### 坐标系统
+
+- **X 轴**: 向前为正
+- **Y 轴**: 向左为正
+- **Yaw**: 逆时针旋转为正（配置文件中使用度数）
+
+## 🎯 工作原理
+
+1. **航点管理** - 从 YAML 文件或 GUI 界面加载航点
+2. **位置跟踪** - 通过 TF 或 odometry 获取机器人位置
+3. **控制器** - PID 控制器计算速度命令
+4. **速度输出** - 发布 `cmd_vel` 控制机器人运动
+
+### ROS2 话题
+
+- **`/cmd_vel`** (`geometry_msgs/Twist`) - 速度命令输出
+- **`/target_pose`** (`geometry_msgs/PoseStamped`) - 目标位姿输入
+- **`/go`** (`std_msgs/Bool`) - 导航启动/停止信号
+- **`/odom`** (`nav_msgs/Odometry`) - 里程计输入
+
+### TF 坐标变换
+
+- **`odom` → `base_link`** - 机器人在里程计坐标系中的位置
+
+## 📊 界面截图
+
+### 现代化编辑器界面
+
+- 左侧：2D 地图视图，显示机器人位置和航点
+- 右侧：导航控制面板
+- 实时机器人位置显示
+- 点击添加航点功能
+
+详细说明请参考 `screenshots/README.md`
+
+## 🧪 测试
 
 ```bash
-# Install PyQt5 (if not already installed)
-pip3 install PyQt5
+# 运行测试
+colcon test --packages-select simple_navigator
 
-# Or on Ubuntu/Debian
-sudo apt install python3-pyqt5
+# 查看测试结果
+colcon test-result --all
 ```
 
-### Usage
+## 🐛 故障排除
+
+### GUI 无法显示
+
+确保有 X11 显示服务器或 VNC：
+```bash
+# 检查 DISPLAY 环境变量
+echo $DISPLAY
+
+# 如果为空，设置显示服务器
+export DISPLAY=:0
+```
+
+### ROS2 节点无法通信
+
+确保 ROS2 环境 已加载：
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+```
+
+### 依赖缺失
 
 ```bash
-# Launch the waypoint editor
-ros2 run simple_navigator waypoint_editor
+pip3 install PyQt5 transforms3d
 ```
 
-### Interface Overview
+## 📝 开发
 
-**Waypoint Editor Tab:**
-- Current robot position display (from TF)
-- Input fields for waypoint name, X, Y, Yaw (rad/deg)
-- Waypoint table with selection
-- Load/Save YAML configuration buttons
+### 添加新功能
 
-**Navigation Control Tab:**
-- Publish selected waypoint as target
-- GO button to start navigation
-- STOP button to cancel navigation
-- Status display
+1. 修改相应的源代码文件
+2. 重新构建：`colcon build --symlink-install`
+3. 测试新功能
 
-### Workflow
+### 代码规范
 
-1. Launch navigator node in one terminal
-2. Launch waypoint editor in another terminal
-3. Use "Use Current Position" to capture robot's current location
-4. Add waypoints or load from YAML
-5. Select a waypoint and click "Publish Target Pose"
-6. Click "GO - Start Navigation" to begin
+- 遵循 PEP 8 Python 代码规范
+- 使用类型提示
+- 添加文档字符串
 
-## Future Extensions
+## 🤝 贡献
 
-- **Path Planning**: Add global/local planner interface
-- **MPC Controller**: Model Predictive Control for better tracking
-- **Pure Pursuit**: For path following applications
-- **Obstacle Avoidance**: Integration with costmaps
-- **Multi-waypoint missions**: Queue-based waypoint execution
+欢迎提交 Issue 和 Pull Request！
 
-## Testing
+## 📄 许可证
 
-### Run Unit Tests
+MIT License
 
-```bash
-# Install pytest (if not already installed)
-pip3 install pytest
+## 👥 作者
 
-# Run tests
-colcon test --packages-select simple_navigator --event-handlers console_direct+
-# Or directly
-python3 test/test_navigator.py
-```
+Simple Navigator 开发团队
 
-Test coverage:
-- WaypointManager: CRUD operations, temporary waypoints
-- Controller: Robot state, goal detection, velocity commands
-- SimpleController: PID control, velocity limits, deadband, navigation simulation
+## 🙏 致谢
 
-### Integration Test with Mock Robot
+- ROS2 社区
+- PyQt5 开发团队
+- transforms3d 库
 
-The package includes a mock robot node for testing without real hardware.
+## 📞 联系方式
 
-```bash
-# Terminal 1: Launch integration test (mock_robot + navigator)
-ros2 launch simple_navigator test_integration.launch.py
+如有问题或建议，请提交 Issue 或 Pull Request。
 
-# Terminal 2: Send target and go signal
-ros2 topic pub /target_pose geometry_msgs/msg/PoseStamped \
-  "{header: {frame_id: 'odom'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {x: 0, y: 0, z: 0, w: 1}}}" --once
+---
 
-ros2 topic pub /go std_msgs/msg/Bool "{data: true}" --once
-
-# Terminal 3: Monitor topics
-ros2 topic echo /cmd_vel
-ros2 topic echo /goal_reached
-ros2 topic echo /odom
-```
-
-### Run Waypoint Editor with Mock Robot
-
-```bash
-# Terminal 1: Launch mock robot only
-ros2 run simple_navigator mock_robot
-
-# Terminal 2: Launch navigator
-ros2 launch simple_navigator navigator.launch.py
-
-# Terminal 3: Launch Qt waypoint editor (optional, requires display)
-ros2 run simple_navigator waypoint_editor
-```
-
-## Architecture
-
-```
-simple_navigator/
-├── config/
-│   └── waypoints.yaml       # Waypoint configuration
-├── launch/
-│   ├── navigator.launch.py  # Main launch file
-│   └── test_integration.launch.py  # Integration test launch
-├── simple_navigator/
-│   ├── __init__.py
-│   ├── navigator_node.py    # Main ROS2 node
-│   ├── waypoint_manager.py  # Waypoint management
-│   ├── controller.py        # Abstract controller interface
-│   ├── simple_controller.py # PID implementation
-│   ├── waypoint_editor.py   # Qt GUI tool
-│   └── mock_robot.py        # Mock robot for simulation
-├── test/
-│   └── test_navigator.py    # Unit tests
-├── package.xml
-├── setup.py
-└── setup.cfg
-```
-
-## License
-
-MIT
+**祝你使用愉快！🎉**

@@ -142,7 +142,7 @@ class RosInterface(Node, QObject):
         self, x: float, y: float, yaw: float, frame_id: str = "odom"
     ):
         """Publish target pose to navigator."""
-        from tf_transformations import quaternion_from_euler
+        from transforms3d.euler import euler2quat as quaternion_from_euler
 
         msg = PoseStamped()
         msg.header.frame_id = frame_id

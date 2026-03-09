@@ -1,60 +1,49 @@
-# Waypoint Configuration
-# Define waypoints with position (x, y) and orientation (yaw in radians)
+# Waypoint Configuration - Square Path Demo
+# Define waypoints with position (x, y) and orientation (yaw in degrees)
 
 waypoints:
-  # Home position
+  # Home position (0, 0)
   home:
     x: 0.0
     y: 0.0
-    yaw: 0.0  # radians
-  
-  # Waypoint 1
+    yaw: 0.0  # degrees
+
+  # Point A (1, 0) - right
   point_a:
     x: 1.0
     y: 0.0
-    yaw: 1.5708  # 90 degrees
-  
-  # Waypoint 2
+    yaw: 90.0  # degrees
+
+  # Point B (1, 1) - top right
   point_b:
     x: 1.0
     y: 1.0
-    yaw: 3.14159  # 180 degrees
-  
-  # Waypoint 3
+    yaw: 180.0  # degrees
+
+  # Point C (0, 1) - top left
   point_c:
     x: 0.0
     y: 1.0
-    yaw: -1.5708  # -90 degrees
+    yaw: -90.0  # degrees
 
 # Navigation parameters
 navigation:
-  # Position tolerance (meters)
   position_tolerance: 0.05
-  # Yaw tolerance (radians)
   yaw_tolerance: 0.05
-  # Control frequency (Hz)
   control_frequency: 20.0
   
 # Controller parameters
 controller:
-  # PID gains for position control
   kp_x: 1.0
   kp_y: 1.0
   kp_yaw: 1.0
-  
-  # Velocity limits
-  max_linear_velocity: 0.5  # m/s
-  max_angular_velocity: 1.0  # rad/s
-  
-  # Deadband for small errors
+  max_linear_velocity: 0.3
+  max_angular_velocity: 0.5
   linear_deadband: 0.01
   angular_deadband: 0.01
 
 # TF frames
 frames:
-  # Robot base frame
   base_frame: "base_link"
-  # World/odom frame
   odom_frame: "odom"
-  # Map frame (for future use)
   map_frame: "map"
