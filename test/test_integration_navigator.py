@@ -113,7 +113,7 @@ class TestNavigatorIntegration(unittest.TestCase):
         time.sleep(0.3)
 
     def _publish_target(self, x: float, y: float, yaw: float) -> None:
-        pub = self.collector.create_publisher(PoseStamped, "target_pose", 10)
+        pub = self.collector.create_publisher(PoseStamped, "goal_pose", 10)
         msg = PoseStamped()
         msg.header.frame_id = "odom"
         msg.pose.position.x = x
@@ -126,7 +126,7 @@ class TestNavigatorIntegration(unittest.TestCase):
         pub.publish(msg)
         time.sleep(0.3)
 
-    def test_target_pose_creates_trajectory(self):
+    def test_goal_pose_creates_trajectory(self):
         self._publish_target(1.0, 0.5, 0.7)
         self.assertIsNotNone(self.navigator.target_state)
         self.assertIsNotNone(self.navigator.active_trajectory)

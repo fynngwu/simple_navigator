@@ -69,7 +69,7 @@ class TargetPublisherNode(Node, QObject):
 
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
-        self.declare_parameter("target_topic", "target_pose")
+        self.declare_parameter("target_topic", "goal_pose")
 
         self.odom_frame = self.get_parameter("odom_frame").value
         self.base_frame = self.get_parameter("base_frame").value

@@ -70,7 +70,7 @@ class NavigatorNode(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.goal_reached_pub = self.create_publisher(Bool, "goal_reached", 10)
         self.target_sub = self.create_subscription(
-            PoseStamped, "target_pose", self.target_pose_callback, 10
+            PoseStamped, "goal_pose", self.target_pose_callback, 10
         )
         self.control_timer = self.create_timer(
             1.0 / self.control_frequency, self.control_loop

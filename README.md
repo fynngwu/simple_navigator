@@ -4,7 +4,7 @@ Minimal ROS2 navigation demo for a holonomic robot. The package contains:
 
 - `navigator`: generates an SE(2) trajectory from current pose to target pose and tracks it
 - `mock_robot`: simulates a holonomic robot and publishes `odom -> base_link`
-- `target_goal_editor`: PyQt5 + Matplotlib tool for publishing `target_pose`
+- `target_goal_editor`: PyQt5 + Matplotlib tool for publishing `goal_pose`
 
 ## Project Structure
 
@@ -62,7 +62,7 @@ uv run --no-sync target_goal_editor --ros-args -p odom_frame:=odom -p base_frame
 You can also publish targets from the command line:
 
 ```bash
-ros2 topic pub --once /target_pose geometry_msgs/msg/PoseStamped \
+ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped \
 "{header: {frame_id: odom}, pose: {position: {x: 0.8, y: -0.2, z: 0.0}, orientation: {x: 0.0, y: 0.0, z: 0.3826834, w: 0.9238795}}}"
 ```
 
