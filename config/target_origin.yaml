@@ -1,0 +1,26 @@
+target:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
+
+navigation:
+  position_tolerance: 0.05
+  yaw_tolerance: 0.05
+  control_frequency: 20.0
+
+trajectory:
+  duration_scale: 1.2
+  min_duration: 0.3
+  debug_logging: true
+  debug_log_period: 0.5
+
+controller:
+  kp_x: 1.5
+  kp_y: 1.5
+  kp_yaw: 2.0
+  max_linear_velocity: 0.4
+  max_angular_velocity: 1.0
+
+frames:
+  base_frame: "base_link"
+  odom_frame: "odom"

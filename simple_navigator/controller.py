@@ -1,122 +1,103 @@
-"""Abstract Controller Interface for navigation control.
-
-This module defines the abstract base class for navigation controllers,
-allowing for future extensions like MPC, Pure Pursuit, etc.
-"""
-
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Tuple
 import math
+
+from .math_utils import clamp, normalize_angle
+from .trajectory import TrajectoryPoint
 
 
 @dataclass
 class RobotState:
-    """Current state of the robot."""
-
     x: float
     y: float
     yaw: float
 
     def distance_to(self, target_x: float, target_y: float) -> float:
-        """Calculate distance to target position."""
-        return math.sqrt((target_x - self.x) ** 2 + (target_y - self.y) ** 2)
+        return math.hypot(target_x - self.x, target_y - self.y)
 
     def angle_to(self, target_yaw: float) -> float:
-        """Calculate angle difference to target yaw."""
-        diff = target_yaw - self.yaw
-        # Normalize to [-pi, pi]
-        while diff > math.pi:
-            diff -= 2 * math.pi
-        while diff < -math.pi:
-            diff += 2 * math.pi
-        return diff
+        return normalize_angle(target_yaw - self.yaw)
 
 
 @dataclass
 class VelocityCommand:
-    """Velocity command for holonomic robot."""
+    vx: float = 0.0
+    vy: float = 0.0
+    vyaw: float = 0.0
 
-    vx: float = 0.0  # Linear velocity in x (m/s)
-    vy: float = 0.0  # Linear velocity in y (m/s)
-    vyaw: float = 0.0  # Angular velocity (rad/s)
-
-    def to_tuple(self) -> Tuple[float, float, float]:
-        """Convert to tuple (vx, vy, vyaw)."""
+    def to_tuple(self) -> tuple[float, float, float]:
         return (self.vx, self.vy, self.vyaw)
 
 
-class Controller(ABC):
-    """Abstract base class for navigation controllers.
+class TrajectoryTracker:
+    def __init__(
+        self,
+        kx: float = 1.5,
+        ky: float = 1.5,
+        kyaw: float = 2.0,
+        max_linear_velocity: float = 0.8,
+        max_angular_velocity: float = 1.5,
+    ) -> None:
+        self.kx = kx
+        self.ky = ky
+        self.kyaw = kyaw
+        self.max_linear_velocity = max_linear_velocity
+        self.max_angular_velocity = max_angular_velocity
 
-    This interface allows for different control strategies:
-    - Simple PID controller
-    - Model Predictive Control (MPC)
-    - Pure Pursuit
-    - Stanley controller
-    - Custom controllers
-    """
+    def set_parameters(self, **kwargs) -> None:
+        aliases = {
+            "kx": "kx",
+            "kp_x": "kx",
+            "ky": "ky",
+            "kp_y": "ky",
+            "kyaw": "kyaw",
+            "kp_yaw": "kyaw",
+            "max_linear_velocity": "max_linear_velocity",
+            "max_angular_velocity": "max_angular_velocity",
+        }
+        for key, value in kwargs.items():
+            attr = aliases.get(key)
+            if attr is not None:
+                setattr(self, attr, float(value))
 
-    @abstractmethod
-    def compute_velocity(
+    def compute_command(
         self,
         current_state: RobotState,
-        target_x: float,
-        target_y: float,
-        target_yaw: float,
+        reference: TrajectoryPoint,
     ) -> VelocityCommand:
-        """Compute velocity command to reach target waypoint.
+        dx = reference.x - current_state.x
+        dy = reference.y - current_state.y
+        dyaw = normalize_angle(reference.yaw - current_state.yaw)
 
-        Args:
-            current_state: Current robot state (x, y, yaw)
-            target_x: Target x position (meters)
-            target_y: Target y position (meters)
-            target_yaw: Target orientation (radians)
+        c = math.cos(current_state.yaw)
+        s = math.sin(current_state.yaw)
 
-        Returns:
-            VelocityCommand with vx, vy, vyaw for holonomic robot
-        """
-        pass
+        error_x_body = c * dx + s * dy
+        error_y_body = -s * dx + c * dy
 
-    @abstractmethod
-    def reset(self) -> None:
-        """Reset controller state (useful for switching targets)."""
-        pass
+        vx_ref_body = c * reference.vx + s * reference.vy
+        vy_ref_body = -s * reference.vx + c * reference.vy
 
-    @abstractmethod
-    def set_parameters(self, **kwargs) -> None:
-        """Update controller parameters.
+        vx = vx_ref_body + self.kx * error_x_body
+        vy = vy_ref_body + self.ky * error_y_body
+        vyaw = reference.wz + self.kyaw * dyaw
 
-        Allows dynamic parameter adjustment without recreating controller.
+        speed = math.hypot(vx, vy)
+        if self.max_linear_velocity > 0.0 and speed > self.max_linear_velocity:
+            scale = self.max_linear_velocity / speed
+            vx *= scale
+            vy *= scale
 
-        Args:
-            **kwargs: Parameter names and values (e.g., kp=2.0, max_velocity=1.0)
-        """
-        pass
+        vyaw = clamp(vyaw, -self.max_angular_velocity, self.max_angular_velocity)
+        return VelocityCommand(vx=vx, vy=vy, vyaw=vyaw)
 
     def is_goal_reached(
         self,
         current_state: RobotState,
-        target_x: float,
-        target_y: float,
-        target_yaw: float,
+        target_state: RobotState,
         position_tolerance: float = 0.05,
         yaw_tolerance: float = 0.05,
     ) -> bool:
-        """Check if robot has reached target waypoint.
-
-        Args:
-            current_state: Current robot state
-            target_x: Target x position
-            target_y: Target y position
-            target_yaw: Target orientation
-            position_tolerance: Position tolerance (meters)
-            yaw_tolerance: Yaw tolerance (radians)
-
-        Returns:
-            True if goal is reached within tolerance
-        """
-        distance_error = current_state.distance_to(target_x, target_y)
-        yaw_error = abs(current_state.angle_to(target_yaw))
-
-        return distance_error < position_tolerance and yaw_error < yaw_tolerance
+        return (
+            current_state.distance_to(target_state.x, target_state.y) < position_tolerance
+            and abs(current_state.angle_to(target_state.yaw)) < yaw_tolerance
+        )

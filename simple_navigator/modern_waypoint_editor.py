@@ -1,324 +1,298 @@
-#!/usr/bin/env python3
-"""Modern Waypoint Editor with 2D Map Visualization.
-
-This module provides a modern graphical interface with:
-- Interactive 2D map visualization
-- Real-time robot position tracking
-- Click-to-add waypoints
-- Modern dark theme UI
-- Navigation controls
-"""
-
-import sys
 import math
-from typing import Dict
+import sys
+import threading
+
+import matplotlib
+
+matplotlib.use("Qt5Agg")
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.figure import Figure
 
 import rclpy
-from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
-
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QListWidget, QGraphicsView, QGraphicsScene, QGraphicsPolygonItem, QGraphicsEllipseItem
-)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QPointF
-from PyQt5.QtGui import QFont, QPolygonF, QBrush, QPen, QColor, QPainter
-
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Bool
+from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QApplication,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
 
-# --- Modern Style CSS ---
-MODERN_STYLE = """
-QMainWindow {
-    background-color: #1e1e2e;
-}
-QWidget {
-    color: #cdd6f4;
-    font-family: 'Segoe UI', Arial, sans-serif;
-}
-QGraphicsView {
-    background-color: #181825;
-    border: 2px solid #313244;
-    border-radius: 10px;
-}
-QListWidget {
-    background-color: #181825;
-    border: 2px solid #313244;
-    border-radius: 8px;
-    padding: 5px;
-    font-size: 14px;
-}
-QListWidget::item:selected {
-    background-color: #89b4fa;
-    color: #1e1e2e;
-    border-radius: 4px;
-}
-QPushButton {
-    background-color: #313244;
-    color: #cdd6f4;
-    border: none;
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 14px;
-    font-weight: bold;
-}
-QPushButton:hover {
-    background-color: #45475a;
-}
-QPushButton#goBtn {
-    background-color: #a6e3a1;
-    color: #1e1e2e;
-}
-QPushButton#goBtn:hover {
-    background-color: #94e289;
-}
-QPushButton#stopBtn {
-    background-color: #f38ba8;
-    color: #1e1e2e;
-}
-QPushButton#stopBtn:hover {
-    background-color: #f0719b;
-}
-QLabel#titleLabel {
-    font-size: 18px;
-    font-weight: bold;
-    color: #89b4fa;
-}
-"""
+
+def quaternion_from_yaw(yaw: float) -> tuple[float, float, float, float]:
+    return 0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0)
 
 
-class RosInterface(Node, QObject):
-    """ROS2 interface for the modern waypoint editor."""
+def yaw_from_quaternion(x: float, y: float, z: float, w: float) -> float:
+    t3 = 2.0 * (w * z + x * y)
+    t4 = 1.0 - 2.0 * (y * y + z * z)
+    return math.atan2(t3, t4)
 
-    tf_update_signal = pyqtSignal(float, float, float)
+
+def build_target_pose(
+    x: float,
+    y: float,
+    yaw: float,
+    stamp=None,
+    frame_id: str = "odom",
+) -> PoseStamped:
+    msg = PoseStamped()
+    msg.header.frame_id = frame_id
+    if stamp is not None:
+        msg.header.stamp = stamp
+    msg.pose.position.x = x
+    msg.pose.position.y = y
+    qx, qy, qz, qw = quaternion_from_yaw(yaw)
+    msg.pose.orientation.x = qx
+    msg.pose.orientation.y = qy
+    msg.pose.orientation.z = qz
+    msg.pose.orientation.w = qw
+    return msg
+
+
+class TargetPublisherNode(Node, QObject):
+    pose_signal = pyqtSignal(float, float, float)
 
     def __init__(self):
-        Node.__init__(self, "modern_waypoint_editor")
+        Node.__init__(self, "target_goal_editor")
         QObject.__init__(self)
 
-        self.target_pose_pub = self.create_publisher(PoseStamped, "target_pose", 10)
-        self.go_pub = self.create_publisher(Bool, "go", 10)
+        self.declare_parameter("odom_frame", "odom")
+        self.declare_parameter("base_frame", "base_link")
+        self.declare_parameter("target_topic", "target_pose")
 
+        self.odom_frame = self.get_parameter("odom_frame").value
+        self.base_frame = self.get_parameter("base_frame").value
+        self.target_topic = self.get_parameter("target_topic").value
+
+        self.publisher = self.create_publisher(PoseStamped, self.target_topic, 10)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.create_timer(0.05, self._emit_robot_pose)
+        self._tf_warned = False
+        self.get_logger().info(
+            "Target goal editor ready; "
+            f"publishing to /{self.target_topic}, TF={self.odom_frame}->{self.base_frame}"
+        )
 
-        self.create_timer(0.05, self.tf_callback)  # 20Hz for smooth updates
-
-    def tf_callback(self):
-        """Periodically check TF for robot position."""
+    def _emit_robot_pose(self) -> None:
         try:
-            transform = self.tf_buffer.lookup_transform("odom", "base_link", rclpy.time.Time())
-            x = transform.transform.translation.x
-            y = transform.transform.translation.y
+            transform = self.tf_buffer.lookup_transform(
+                self.odom_frame,
+                self.base_frame,
+                rclpy.time.Time(),
+            )
             q = transform.transform.rotation
-            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-            self.tf_update_signal.emit(x, y, yaw)
+            self.pose_signal.emit(
+                transform.transform.translation.x,
+                transform.transform.translation.y,
+                yaw_from_quaternion(q.x, q.y, q.z, q.w),
+            )
+            self._tf_warned = False
         except Exception:
-            pass
+            if not self._tf_warned:
+                self.get_logger().warn(
+                    f"Waiting for TF: {self.odom_frame} -> {self.base_frame}..."
+                )
+                self._tf_warned = True
 
-    def publish_target_pose(self, x: float, y: float):
-        """Publish target pose to navigator."""
-        msg = PoseStamped()
-        msg.header.frame_id = "odom"
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.pose.position.x = x
-        msg.pose.position.y = y
-        self.target_pose_pub.publish(msg)
-
-    def publish_go(self, go: bool = True):
-        """Publish go signal."""
-        msg = Bool()
-        msg.data = go
-        self.go_pub.publish(msg)
-
-
-class MapView(QGraphicsView):
-    """Interactive 2D coordinate system view."""
-
-    map_clicked = pyqtSignal(float, float)
-
-    def __init__(self):
-        super().__init__()
-        self.scene = QGraphicsScene(self)
-        self.setScene(self.scene)
-        self.setRenderHint(QPainter.Antialiasing)
-        self.setSceneRect(-300, -300, 600, 600)  # 600x600 pixels
-
-        # Scale: 1 meter = 50 pixels
-        self.scale_factor = 50.0
-        self.draw_grid()
-
-        # Robot item (green triangle)
-        self.robot_item = QGraphicsPolygonItem(QPolygonF([QPointF(15, 0), QPointF(-10, -10), QPointF(-10, 10)]))
-        self.robot_item.setBrush(QBrush(QColor("#a6e3a1")))
-        self.robot_item.setPen(QPen(Qt.NoPen))
-        self.scene.addItem(self.robot_item)
-
-        self.waypoint_items = {}
-
-    def draw_grid(self):
-        """Draw coordinate grid."""
-        pen = QPen(QColor("#313244"))
-        pen.setWidth(1)
-        for i in range(-300, 301, int(self.scale_factor)):
-            self.scene.addLine(i, -300, i, 300, pen)
-            self.scene.addLine(-300, i, 300, i, pen)
-        # Coordinate axes
-        axis_pen = QPen(QColor("#585b70"))
-        axis_pen.setWidth(2)
-        self.scene.addLine(0, -300, 0, 300, axis_pen)
-        self.scene.addLine(-300, 0, 300, 0, axis_pen)
-
-    def update_robot(self, x, y, yaw):
-        """Update robot position and orientation."""
-        # ROS to screen coordinates (screen Y is down, ROS Y is up)
-        px, py = x * self.scale_factor, -y * self.scale_factor
-        self.robot_item.setPos(px, py)
-        # Screen rotation is clockwise, ROS yaw is counterclockwise
-        self.robot_item.setRotation(-math.degrees(yaw))
-
-    def mousePressEvent(self, event):
-        """Handle mouse clicks on the map."""
-        if event.button() == Qt.LeftButton:
-            pos = self.mapToScene(event.pos())
-            ros_x = pos.x() / self.scale_factor
-            ros_y = -pos.y() / self.scale_factor
-            self.map_clicked.emit(ros_x, ros_y)
-
-    def add_waypoint_visual(self, name, x, y):
-        """Add visual waypoint marker on the map."""
-        px, py = x * self.scale_factor, -y * self.scale_factor
-        dot = QGraphicsEllipseItem(px - 5, py - 5, 10, 10)
-        dot.setBrush(QBrush(QColor("#89b4fa")))
-        dot.setPen(QPen(Qt.NoPen))
-        self.scene.addItem(dot)
-        self.waypoint_items[name] = dot
-
-    def clear_waypoints(self):
-        """Clear all waypoint markers."""
-        for item in self.waypoint_items.values():
-            self.scene.removeItem(item)
-        self.waypoint_items.clear()
+    def publish_target(self, x: float, y: float, yaw: float) -> None:
+        msg = build_target_pose(
+            x,
+            y,
+            yaw,
+            self.get_clock().now().to_msg(),
+            frame_id=self.odom_frame,
+        )
+        self.publisher.publish(msg)
+        self.get_logger().info(
+            f"Published target pose: frame={self.odom_frame}, x={x:.2f}, y={y:.2f}, yaw={yaw:.2f}"
+        )
 
 
-class ModernWaypointEditor(QMainWindow):
-    """Modern waypoint editor with 2D visualization."""
-
-    def __init__(self, ros_node: RosInterface):
+class TargetGoalEditor(QMainWindow):
+    def __init__(self, ros_node: TargetPublisherNode):
         super().__init__()
         self.ros_node = ros_node
-        self.waypoints = {}
-        self.wp_count = 1
-
-        self.init_ui()
-        self.ros_node.tf_update_signal.connect(self.map_view.update_robot)
-        self.ros_node.tf_update_signal.connect(self.update_status)
-
-    def init_ui(self):
-        """Initialize the user interface."""
-        self.setWindowTitle("Modern Navigator Dashboard")
-        self.setMinimumSize(950, 650)
-        self.setStyleSheet(MODERN_STYLE)
+        self.setWindowTitle("Advanced Target Goal Publisher")
+        self.resize(1000, 600)
 
         main_widget = QWidget()
+        main_layout = QHBoxLayout(main_widget)
+
+        self._init_control_panel(main_layout)
+        self._init_plot_panel(main_layout)
+
         self.setCentralWidget(main_widget)
-        layout = QHBoxLayout(main_widget)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
+        self.ros_node.pose_signal.connect(self._update_robot_pose)
+        self._update_target_plot_from_spinbox()
 
-        # === Left: Map Area ===
-        map_layout = QVBoxLayout()
-        self.map_view = MapView()
-        self.map_view.map_clicked.connect(self.handle_map_click)
-        map_layout.addWidget(self.map_view)
+    def _init_control_panel(self, parent_layout) -> None:
+        control_panel = QWidget()
+        layout = QVBoxLayout(control_panel)
+        layout.setAlignment(Qt.AlignTop)
+        control_panel.setMaximumWidth(350)
 
-        self.status_label = QLabel("Waiting for Odometry...")
-        self.status_label.setStyleSheet("color: #a6e3a1; font-weight: bold;")
-        map_layout.addWidget(self.status_label)
-        layout.addLayout(map_layout, stretch=2)
+        status_group = QGroupBox(
+            f"Robot TF Status ({self.ros_node.odom_frame} -> {self.ros_node.base_frame})"
+        )
+        status_layout = QVBoxLayout()
+        self.robot_pose_label = QLabel("Waiting for TF data...")
+        self.robot_pose_label.setWordWrap(True)
+        status_layout.addWidget(self.robot_pose_label)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
 
-        # === Right: Control Panel ===
-        control_layout = QVBoxLayout()
+        input_group = QGroupBox("Target Configuration")
+        form = QFormLayout()
+        self.x_input = self._create_spinbox(-50.0, 50.0, 0.0)
+        self.y_input = self._create_spinbox(-50.0, 50.0, 0.0)
+        self.yaw_input = self._create_spinbox(-math.pi, math.pi, 0.0)
+        self.x_input.valueChanged.connect(self._update_target_plot_from_spinbox)
+        self.y_input.valueChanged.connect(self._update_target_plot_from_spinbox)
+        self.yaw_input.valueChanged.connect(self._update_target_plot_from_spinbox)
+        form.addRow("Target X (m)", self.x_input)
+        form.addRow("Target Y (m)", self.y_input)
+        form.addRow("Target Yaw (rad)", self.yaw_input)
+        input_group.setLayout(form)
+        layout.addWidget(input_group)
 
-        title = QLabel("Navigation Control")
-        title.setObjectName("titleLabel")
-        control_layout.addWidget(title)
+        publish_button = QPushButton("Publish Target Pose")
+        publish_button.setMinimumHeight(50)
+        publish_button.clicked.connect(self.publish_target)
+        layout.addWidget(publish_button)
 
-        self.wp_list = QListWidget()
-        control_layout.addWidget(self.wp_list)
+        parent_layout.addWidget(control_panel)
 
-        clear_btn = QPushButton("Clear Waypoints")
-        clear_btn.clicked.connect(self.clear_waypoints)
-        control_layout.addWidget(clear_btn)
+    def _init_plot_panel(self, parent_layout) -> None:
+        plot_panel = QWidget()
+        layout = QVBoxLayout(plot_panel)
 
-        control_layout.addSpacing(20)
+        self.figure = Figure()
+        self.canvas = FigureCanvas(self.figure)
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        self.ax = self.figure.add_subplot(111)
+        self.ax.set_title("2D Pose Visualization (Click to set target X/Y)")
+        self.ax.set_xlabel("X (meters)")
+        self.ax.set_ylabel("Y (meters)")
+        self.ax.grid(True, linestyle="--", alpha=0.6)
+        self.ax.set_aspect("equal", adjustable="datalim")
+        self.ax.set_xlim(-5, 5)
+        self.ax.set_ylim(-5, 5)
 
-        pub_btn = QPushButton("Publish Selected Target")
-        pub_btn.clicked.connect(self.publish_selected)
-        control_layout.addWidget(pub_btn)
+        self.robot_quiver = self.ax.quiver(
+            0,
+            0,
+            1,
+            0,
+            color="blue",
+            scale=10,
+            pivot="tail",
+            label="Current Robot",
+        )
+        self.target_quiver = self.ax.quiver(
+            0,
+            0,
+            1,
+            0,
+            color="red",
+            scale=10,
+            pivot="tail",
+            label="Target Goal",
+        )
+        self.ax.legend(loc="upper right")
+        self.canvas.mpl_connect("button_press_event", self.on_canvas_click)
 
-        go_btn = QPushButton("START NAVIGATION")
-        go_btn.setObjectName("goBtn")
-        go_btn.clicked.connect(lambda: self.ros_node.publish_go(True))
-        control_layout.addWidget(go_btn)
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
+        parent_layout.addWidget(plot_panel)
 
-        stop_btn = QPushButton("EMERGENCY STOP")
-        stop_btn.setObjectName("stopBtn")
-        stop_btn.clicked.connect(lambda: self.ros_node.publish_go(False))
-        control_layout.addWidget(stop_btn)
+    def _create_spinbox(self, minimum: float, maximum: float, value: float) -> QDoubleSpinBox:
+        widget = QDoubleSpinBox()
+        widget.setDecimals(3)
+        widget.setRange(minimum, maximum)
+        widget.setSingleStep(0.1)
+        widget.setValue(value)
+        return widget
 
-        layout.addLayout(control_layout, stretch=1)
+    def on_canvas_click(self, event) -> None:
+        if event.inaxes != self.ax or self.toolbar.mode != "":
+            return
+        if event.button != 1 or event.xdata is None or event.ydata is None:
+            return
 
-    def handle_map_click(self, x, y):
-        """Handle map click to add waypoint."""
-        name = f"WP_{self.wp_count}"
-        self.wp_count += 1
-        self.waypoints[name] = (x, y)
-        self.wp_list.addItem(f"{name}: ({x:.2f}, {y:.2f})")
-        self.map_view.add_waypoint_visual(name, x, y)
+        self.x_input.blockSignals(True)
+        self.y_input.blockSignals(True)
+        self.x_input.setValue(event.xdata)
+        self.y_input.setValue(event.ydata)
+        self.x_input.blockSignals(False)
+        self.y_input.blockSignals(False)
+        self._update_target_plot_from_spinbox()
 
-    def clear_waypoints(self):
-        """Clear all waypoints."""
-        self.waypoints.clear()
-        self.wp_list.clear()
-        self.map_view.clear_waypoints()
-        self.wp_count = 1
+    def _update_target_plot_from_spinbox(self) -> None:
+        x = self.x_input.value()
+        y = self.y_input.value()
+        yaw = self.yaw_input.value()
+        dx = math.cos(yaw)
+        dy = math.sin(yaw)
+        self.target_quiver.set_offsets([[x, y]])
+        self.target_quiver.set_UVC(dx, dy)
+        self.canvas.draw_idle()
 
-    def publish_selected(self):
-        """Publish selected waypoint as target."""
-        selected = self.wp_list.currentItem()
-        if selected:
-            name = selected.text().split(":")[0]
-            x, y = self.waypoints[name]
-            self.ros_node.publish_target_pose(x, y)
+    def _update_robot_pose(self, x: float, y: float, yaw: float) -> None:
+        self.robot_pose_label.setText(
+            f"<b>X:</b> {x:.3f} m<br>"
+            f"<b>Y:</b> {y:.3f} m<br>"
+            f"<b>Yaw:</b> {yaw:.3f} rad ({math.degrees(yaw):.1f}°)"
+        )
+        dx = math.cos(yaw)
+        dy = math.sin(yaw)
+        self.robot_quiver.set_offsets([[x, y]])
+        self.robot_quiver.set_UVC(dx, dy)
+        self.canvas.draw_idle()
 
-    def update_status(self, x, y, yaw):
-        """Update status label with robot position."""
-        self.status_label.setText(f"Robot Position: X: {x:.2f}m | Y: {y:.2f}m | Yaw: {math.degrees(yaw):.1f}°")
+    def publish_target(self) -> None:
+        self.ros_node.publish_target(
+            self.x_input.value(),
+            self.y_input.value(),
+            self.yaw_input.value(),
+        )
 
 
 def main():
-    """Main entry point."""
     rclpy.init()
-
-    ros_node = RosInterface()
+    ros_node = TargetPublisherNode()
     executor = MultiThreadedExecutor()
     executor.add_node(ros_node)
+    thread = threading.Thread(target=executor.spin, daemon=True)
+    thread.start()
 
-    # Start executor in background
-    import threading
-    executor_thread = threading.Thread(target=executor.spin, daemon=True)
-    executor_thread.start()
-
-    # Create Qt application
     app = QApplication(sys.argv)
-    app.setFont(QFont("Arial", 10))
-    window = ModernWaypointEditor(ros_node)
+    window = TargetGoalEditor(ros_node)
     window.show()
 
-    # Run Qt event loop
-    sys.exit(app.exec_())
+    try:
+        exit_code = app.exec_()
+    finally:
+        executor.shutdown()
+        thread.join(timeout=1.0)
+        ros_node.destroy_node()
+        if rclpy.ok():
+            try:
+                rclpy.shutdown()
+            except ExternalShutdownException:
+                pass
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

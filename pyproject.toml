@@ -1,0 +1,34 @@
+[project]
+name = "simple_navigator"
+version = "0.1.0"
+description = "Minimal ROS2 SE(2) navigator for a holonomic robot"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "PyQt5>=5.15",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+navigator = "simple_navigator.navigator_node:main"
+mock_robot = "simple_navigator.mock_robot:main"
+target_goal_editor = "simple_navigator.modern_waypoint_editor:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["simple_navigator*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.uv]
+# rclpy 来自 ROS2 系统包，需要 source /opt/ros/humble/setup.bash 后可用

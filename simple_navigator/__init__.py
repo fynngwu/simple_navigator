@@ -1,6 +1,10 @@
-# Simple Navigator Package
-from .waypoint_manager import WaypointManager
-from .controller import Controller
-from .simple_controller import SimpleController
+from .controller import RobotState, TrajectoryTracker, VelocityCommand
+from .trajectory import SE2Trajectory, TrajectoryPoint
 
-__all__ = ["WaypointManager", "Controller", "SimpleController"]
+__all__ = [
+    "RobotState",
+    "TrajectoryPoint",
+    "TrajectoryTracker",
+    "VelocityCommand",
+    "SE2Trajectory",
+]
